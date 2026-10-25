@@ -29,7 +29,9 @@ jobs:
           TARGET=$(git rev-list --reverse --first-parent HEAD | sed -n "${MM_BUILD}p")
           if [ -n "$TARGET" ]; then git checkout -q "$TARGET"; fi
           echo "Metamod build usado: $(git rev-list --count HEAD)"
-          git submodule update --init --recursive || true
+          git submodule update --init --recursive || git submodule update --init || true
+          echo "--- submodulos de Metamod ---"
+          git submodule status || true
 
       - name: Instalar xmake
         uses: xmake-io/github-action-setup-xmake@v1
@@ -105,6 +107,9 @@ jobs:
           open(f, "w").write(t)
           print("schema.cpp parcheado")
           PY
+          # El SDK actual necesita RenderDeviceInfo_t declarado antes de iserver.h
+          sed -i '0,/#include <stdio.h>/s//struct RenderDeviceInfo_t;\n#include <stdio.h>/' src/extension.cpp
+          grep -n "RenderDeviceInfo_t" src/extension.cpp || true
           grep -n "stricmp\|generichash\|khook" xmake.lua || true
 
       - name: Compilar
@@ -128,7 +133,24 @@ jobs:
           echo "===== RESUMEN ====="
           grep -n "Metamod build\|=== Intento" /tmp/build.log || true
           echo "----- errores -----"
-          grep -n -A3 "error:" /tmp/build.log | head -n 90 || true
+          grep -h "error:" /tmp/build.log | grep -v "^error: In file" | sed 's/^.*\(src\/\|opt\/\)/\1/' | sort -u | head -n 45 || true
+
+      - name: Diagnostico de Metamod (copia ESTO tambien si falla)
+        if: failure()
+        run: |
+          cd /opt/metamod-source
+          echo "--- carpeta core/sourcehook ---"
+          ls core/sourcehook | head -40 || true
+          echo "--- archivos sourcehook / sh_ en todo Metamod ---"
+          find . \( -iname 'sourcehook*.h' -o -iname 'sh_*.h' \) | head -30
+          echo "--- donde se define SH_DECL_HOOK6_void ---"
+          grep -rl "define SH_DECL_HOOK6_void" . | head -5 || true
+          echo "--- donde se define SH_NOATTRIB / META_IFACEPTR / SH_MEMBER ---"
+          grep -rn "define SH_NOATTRIB\|define META_IFACEPTR\|define SH_MEMBER" . | head -10 || true
+          echo "--- includes de ISmmAPI.h e ISmmPlugin.h ---"
+          grep -n "#include\|__has_include" core/ISmmAPI.h core/ISmmPlugin.h | head -40
+          echo "--- submodulos ---"
+          git submodule status || true
 
       - name: Armar carpeta lista para copiar al servidor
         run: |
