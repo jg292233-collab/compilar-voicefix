@@ -57,6 +57,54 @@ jobs:
             echo "sh_vector.h no existe: se quita el include de src/extension.h"
             sed -i '/sh_vector.h/d' src/extension.h
           fi
+          # CUtlMap ya no existe en el SDK actual: schema.cpp pasa a usar std::unordered_map
+          python3 - <<'PY'
+          import re
+          f = "src/cs2_sdk/schema.cpp"
+          t = open(f).read()
+
+          def rep(old, new):
+              global t
+              assert old in t, "no se encontro: " + old
+              t = t.replace(old, new)
+
+          rep('#include "schema.h"', '#include <unordered_map>\n#include "schema.h"')
+          rep('using SchemaKeyValueMap_t = CUtlMap<uint32_t, SchemaKey>;', 'using SchemaKeyValueMap_t = std::unordered_map<uint32_t, SchemaKey>;')
+          rep('using SchemaTableMap_t = CUtlMap<uint32_t, SchemaKeyValueMap_t*>;', 'using SchemaTableMap_t = std::unordered_map<uint32_t, SchemaKeyValueMap_t*>;')
+          rep('new SchemaKeyValueMap_t(0, 0, DefLessFunc(uint32_t))', 'new SchemaKeyValueMap_t()')
+          rep('tableMap->Insert(classKey, map);', '(*tableMap)[classKey] = map;')
+          rep('keyValueMap->EnsureCapacity(fieldsSize);', 'keyValueMap->reserve(fieldsSize);')
+          rep('tableMap->Insert(classKey, keyValueMap);', '(*tableMap)[classKey] = keyValueMap;')
+          rep('keyValueMap->Insert(hash_32_fnv1a_const(field.m_pszName), {field.m_nSingleInheritanceOffset, IsFieldNetworked(field)});',
+              '(*keyValueMap)[hash_32_fnv1a_const(field.m_pszName)] = SchemaKey{field.m_nSingleInheritanceOffset, IsFieldNetworked(field)};')
+
+          i = t.index("SchemaKey schema::GetOffset(")
+          t = t[:i] + """SchemaKey schema::GetOffset(const char* className, uint32_t classKey, const char* memberName, uint32_t memberKey)
+          {
+              static SchemaTableMap_t schemaTableMap;
+              auto tableIt = schemaTableMap.find(classKey);
+              if (tableIt == schemaTableMap.end())
+              {
+                  if (InitSchemaFieldsForClass(&schemaTableMap, className, classKey))
+                      return GetOffset(className, classKey, memberName, memberKey);
+
+                  return { 0, 0 };
+              }
+
+              SchemaKeyValueMap_t *tableMap = tableIt->second;
+              auto memberIt = tableMap->find(memberKey);
+              if (memberIt == tableMap->end())
+              {
+                  Warning("schema::GetOffset(): '%s' was not found in '%s'!\\n", memberName, className);
+                  return { 0, 0 };
+              }
+
+              return memberIt->second;
+          }
+          """
+          open(f, "w").write(t)
+          print("schema.cpp parcheado")
+          PY
           grep -n "stricmp\|generichash\|khook" xmake.lua || true
 
       - name: Compilar
