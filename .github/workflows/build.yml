@@ -49,15 +49,35 @@ jobs:
           else
             echo "khook no hace falta en esta version de Metamod"
           fi
+          # sh_vector.h no existe en Metamod nuevo y el plugin no lo usa: se quita el include
+          if ! find /opt/metamod-source -name sh_vector.h | grep -q .; then
+            echo "sh_vector.h no existe: se quita el include de src/extension.h"
+            sed -i '/sh_vector.h/d' src/extension.h
+          fi
           grep -n "stricmp\|generichash\|khook" xmake.lua || true
 
       - name: Compilar
         working-directory: plugin
         run: |
+          set -o pipefail
           export HL2SDKCS2=/opt/hl2sdk-cs2
           export MMSOURCE112=/opt/metamod-source
-          xmake f -y -m release --toolchain=clang || xmake f -y -m release
-          xmake -y -v
+          echo "Metamod build usado: $(git -C /opt/metamod-source rev-list --count HEAD)" | tee -a /tmp/build.log
+          intento() {
+            echo "=== Intento: compilador $1, lenguaje $2 ===" | tee -a /tmp/build.log
+            sed -i "s/set_languages(\"cxx[0-9]*\")/set_languages(\"$2\")/" xmake.lua
+            xmake clean -a || true
+            xmake f -y -c -m release --toolchain=$1 >> /tmp/build.log 2>&1 && xmake -y -v 2>&1 | tee -a /tmp/build.log
+          }
+          intento clang cxx17 || intento gcc cxx20 || intento gcc cxx17
+
+      - name: Resumen de errores (copia ESTO si falla)
+        if: failure()
+        run: |
+          echo "===== RESUMEN ====="
+          grep -n "Metamod build\|=== Intento" /tmp/build.log || true
+          echo "----- errores -----"
+          grep -n -A3 "error:" /tmp/build.log | head -n 90 || true
 
       - name: Armar carpeta lista para copiar al servidor
         run: |
