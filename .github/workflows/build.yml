@@ -12,11 +12,21 @@ jobs:
     env:
       XMAKE_ROOT: "y"
     steps:
-      - name: Descargar codigo del plugin, SDK de Valve y Metamod
+      - name: Descargar codigo del plugin y SDK de Valve
         run: |
           git clone --depth 1 https://github.com/Source2ZE/CS2VoiceFix.git plugin
           git clone --depth 1 -b cs2 https://github.com/alliedmodders/hl2sdk.git /opt/hl2sdk-cs2
-          git clone --depth 1 https://github.com/alliedmodders/metamod-source.git /opt/metamod-source
+
+      - name: Descargar Metamod (misma version que tu servidor)
+        env:
+          MM_BUILD: "1483"
+        run: |
+          git clone https://github.com/alliedmodders/metamod-source.git /opt/metamod-source
+          cd /opt/metamod-source
+          TARGET=$(git rev-list --reverse --first-parent HEAD | sed -n "${MM_BUILD}p")
+          if [ -n "$TARGET" ]; then git checkout -q "$TARGET"; fi
+          echo "Metamod build usado: $(git rev-list --count HEAD)"
+          git submodule update --init --recursive || true
 
       - name: Instalar xmake
         uses: xmake-io/github-action-setup-xmake@v1
@@ -30,7 +40,16 @@ jobs:
           sed -i '/generichash.cpp/d' xmake.lua
           # Definiciones que el SDK de Valve necesita en Linux (stricmp y compania)
           sed -i 's|"_LINUX",|"_LINUX",\n            "stricmp=strcasecmp",\n            "_stricmp=strcasecmp",\n            "strcmpi=strcasecmp",\n            "strnicmp=strncasecmp",\n            "_strnicmp=strncasecmp",\n            "_snprintf=snprintf",\n            "_vsnprintf=vsnprintf",\n            "_alloca=alloca",|' xmake.lua
-          grep -n "stricmp\|generichash" xmake.lua || true
+          # Metamod nuevo puede necesitar khook.hpp: se agrega su carpeta si existe
+          KH=$(find /opt/metamod-source -name khook.hpp | head -n 1 || true)
+          if [ -n "$KH" ]; then
+            KHDIR=$(dirname "$KH")
+            echo "khook encontrado en: $KHDIR"
+            sed -i "s|MM_PATH..\"/core/sourcehook\",|MM_PATH..\"/core/sourcehook\",\n        \"${KHDIR}\",|" xmake.lua
+          else
+            echo "khook no hace falta en esta version de Metamod"
+          fi
+          grep -n "stricmp\|generichash\|khook" xmake.lua || true
 
       - name: Compilar
         working-directory: plugin
