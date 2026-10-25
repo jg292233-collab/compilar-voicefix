@@ -1,0 +1,48 @@
+name: Compilar CS2VoiceFix (Linux)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Entorno oficial de Valve (Steam Runtime "sniper"): asi el .so es compatible con el servidor
+    container:
+      image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    env:
+      XMAKE_ROOT: "y"
+    steps:
+      - name: Descargar codigo del plugin, SDK de Valve y Metamod
+        run: |
+          git clone --depth 1 https://github.com/Source2ZE/CS2VoiceFix.git plugin
+          git clone --depth 1 -b cs2 https://github.com/alliedmodders/hl2sdk.git /opt/hl2sdk-cs2
+          git clone --depth 1 https://github.com/alliedmodders/metamod-source.git /opt/metamod-source
+
+      - name: Instalar xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Compilar
+        working-directory: plugin
+        run: |
+          export HL2SDKCS2=/opt/hl2sdk-cs2
+          export MMSOURCE112=/opt/metamod-source
+          xmake f -y -m release --toolchain=clang || xmake f -y -m release
+          xmake -y -v
+
+      - name: Armar carpeta lista para copiar al servidor
+        run: |
+          SO=$(find plugin/build -name '*CS2VoiceFix.so' | head -n 1)
+          echo "Archivo compilado: $SO"
+          test -n "$SO"
+          mkdir -p out/addons/CS2VoiceFix out/addons/metamod
+          cp "$SO" out/addons/CS2VoiceFix/CS2VoiceFix.so
+          printf '"Metamod Plugin"\n{\n\t"alias"\t"CS2VoiceFix"\n\t"file"\t"addons/CS2VoiceFix/CS2VoiceFix"\n}\n' > out/addons/metamod/CS2VoiceFix.vdf
+          ls -R out
+
+      - name: Subir resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: CS2VoiceFix-linux
+          path: out/
