@@ -23,6 +23,15 @@ jobs:
         with:
           xmake-version: latest
 
+      - name: Adaptar xmake.lua al SDK actual
+        working-directory: plugin
+        run: |
+          # generichash.cpp ya no existe en el SDK actual
+          sed -i '/generichash.cpp/d' xmake.lua
+          # Definiciones que el SDK de Valve necesita en Linux (stricmp y compania)
+          sed -i 's|"_LINUX",|"_LINUX",\n            "stricmp=strcasecmp",\n            "_stricmp=strcasecmp",\n            "strcmpi=strcasecmp",\n            "strnicmp=strncasecmp",\n            "_strnicmp=strncasecmp",\n            "_snprintf=snprintf",\n            "_vsnprintf=vsnprintf",\n            "_alloca=alloca",|' xmake.lua
+          grep -n "stricmp\|generichash" xmake.lua || true
+
       - name: Compilar
         working-directory: plugin
         run: |
