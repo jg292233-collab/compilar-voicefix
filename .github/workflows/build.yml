@@ -9,6 +9,9 @@ jobs:
     # Entorno oficial de Valve (Steam Runtime "sniper"): asi el .so es compatible con el servidor
     container:
       image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    defaults:
+      run:
+        shell: bash
     env:
       XMAKE_ROOT: "y"
     steps:
@@ -50,7 +53,7 @@ jobs:
             echo "khook no hace falta en esta version de Metamod"
           fi
           # sh_vector.h no existe en Metamod nuevo y el plugin no lo usa: se quita el include
-          if ! find /opt/metamod-source -name sh_vector.h | grep -q .; then
+          if [ -z "$(find /opt/metamod-source -name sh_vector.h | head -n 1)" ]; then
             echo "sh_vector.h no existe: se quita el include de src/extension.h"
             sed -i '/sh_vector.h/d' src/extension.h
           fi
